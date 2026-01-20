@@ -336,15 +336,27 @@ function renderVisualizer(presenceState) {
         const pct = Math.min(100, Math.max(0, (elevation / GOAL_ELEVATION) * 100));
         const isSelf = user.user === state.username;
 
+        // Slope-following logic: drift and narrowing
+        const drift = Math.sin(pct * 0.15) * 40; // Meandering movement
+        const narrowing = 1 - (pct / 100); // Converge towards peak
+        const leftPosition = 50 + (drift * narrowing);
+
         const avatar = document.createElement('div');
         avatar.className = `climber-avatar tooltip ${isSelf ? 'self' : ''}`;
         avatar.style.bottom = `${pct}%`;
+        avatar.style.left = `${leftPosition}%`;
         avatar.style.backgroundColor = getUserColor(user.user);
         avatar.setAttribute('data-tip', `${user.user} (${elevation}m)`);
 
         // Display first character of username
         const initial = user.user.charAt(0).toUpperCase();
         avatar.textContent = initial;
+
+        // Add name label
+        const nameLabel = document.createElement('div');
+        nameLabel.className = 'climber-name';
+        nameLabel.textContent = user.user;
+        avatar.appendChild(nameLabel);
 
         elClimbersVisualizer.appendChild(avatar);
     });
@@ -396,10 +408,16 @@ function renderUI() {
 function renderSelfAvatar(elevation) {
     const pct = Math.min(100, Math.max(0, (elevation / GOAL_ELEVATION) * 100));
 
+    // Slope-following logic
+    const drift = Math.sin(pct * 0.15) * 40;
+    const narrowing = 1 - (pct / 100);
+    const leftPosition = 50 + (drift * narrowing);
+
     // Remove previous self avatar if exists
     const existingSelf = elClimbersVisualizer.querySelector('.climber-avatar.self');
     if (existingSelf) {
         existingSelf.style.bottom = `${pct}%`;
+        existingSelf.style.left = `${leftPosition}%`;
         existingSelf.setAttribute('data-tip', `${state.username} (${elevation.toFixed(1)}m)`);
         return;
     }
@@ -408,11 +426,18 @@ function renderSelfAvatar(elevation) {
     const avatar = document.createElement('div');
     avatar.className = 'climber-avatar self tooltip';
     avatar.style.bottom = `${pct}%`;
+    avatar.style.left = `${leftPosition}%`;
     avatar.style.backgroundColor = getUserColor(state.username);
     avatar.setAttribute('data-tip', `${state.username} (${elevation.toFixed(1)}m)`);
 
     const initial = state.username.charAt(0).toUpperCase();
     avatar.textContent = initial;
+
+    // Add name label
+    const nameLabel = document.createElement('div');
+    nameLabel.className = 'climber-name';
+    nameLabel.textContent = state.username;
+    avatar.appendChild(nameLabel);
 
     elClimbersVisualizer.appendChild(avatar);
 }
