@@ -11,7 +11,9 @@ const STORAGE_KEY = 'fujisan_data';
 // Supabase Config
 const SUPABASE_URL = 'https://awoiafutiomkwgoexrvd.supabase.co';
 const SUPABASE_KEY = 'sb_publishable_PQZ2J-tDcP0DJxqg7bLTSw_zJ1biFvR';
-let supabase = null;
+let supabaseClient = null;
+
+// ... (existing code)
 
 // Stations (m)
 const STATIONS = [
