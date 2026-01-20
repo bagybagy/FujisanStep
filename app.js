@@ -10,7 +10,7 @@ const COOLDOWN_MS = 3000; // 3 seconds (Configurable)
 const STORAGE_KEY = 'fujisan_data';
 // Supabase Config
 const SUPABASE_URL = 'https://awoiafutiomkwgoexrvd.supabase.co';
-const SUPABASE_KEY = 'sb_publishable_PQZ2J-tDcP0DJxqg7bLTSw_zJ1biFvR';
+const SUPABASE_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImF3b2lhZnV0aW9ta3dnb2V4cnZkIiwicm9sZSI6ImFub24iLCJpYXQiOjE3Njg5MDAxOTMsImV4cCI6MjA4NDQ3NjE5M30.-PTz5nH_KQUHsIYapg-EtHjvOJoV9NODxruPs3yXtOQ';
 let supabaseClient = null;
 
 // ... (existing code)
