@@ -213,19 +213,19 @@ function addSteps(id, steps) {
 // --- Backend / Realtime Logic ---
 
 async function initSupabase() {
-    if (typeof supabase === 'undefined' && window.supabase) {
-        supabase = window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
+    if (window.supabase) {
+        supabaseClient = window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
     } else if (typeof createClient !== 'undefined') {
-        supabase = createClient(SUPABASE_URL, SUPABASE_KEY);
+        supabaseClient = createClient(SUPABASE_URL, SUPABASE_KEY);
     }
 
-    if (!supabase) {
+    if (!supabaseClient) {
         console.error('Supabase client not initialized');
         return;
     }
 
     // Subscribe to online presence / updates
-    const channel = supabase.channel('climbers_room');
+    const channel = supabaseClient.channel('climbers_room');
 
     channel
         .on('presence', { event: 'sync' }, () => {
@@ -253,10 +253,10 @@ async function initSupabase() {
 }
 
 async function syncLocation() {
-    if (!supabase || !state.username) return;
+    if (!supabaseClient || !state.username) return;
 
     try {
-        const { error } = await supabase
+        const { error } = await supabaseClient
             .from('climbers')
             .upsert({
                 username: state.username,
@@ -268,7 +268,7 @@ async function syncLocation() {
         if (error) console.error('Sync error:', error);
 
         // Update presence if connected
-        const channel = supabase.channel('climbers_room');
+        const channel = supabaseClient.channel('climbers_room');
         channel.track({
             user: state.username,
             elevation: calculateElevation(state.totalSteps),
