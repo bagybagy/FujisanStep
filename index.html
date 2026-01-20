@@ -35,6 +35,83 @@
         .number-font {
             font-family: 'Outfit', sans-serif;
         }
+
+        /* Vertical Climbing Route */
+        #climb-route {
+            background: linear-gradient(to top,
+                    #2d5016 0%,
+                    /* 濃い緑 - 森林帯 */
+                    #38ef7d 15%,
+                    /* 明るい緑 - 森林帯上部 */
+                    #89d4f5 45%,
+                    /* 青 - 中腹 */
+                    #b8b8b8 75%,
+                    /* 灰色 - 岩場 */
+                    #f0f0f0 90%,
+                    /* 薄灰 - 山頂手前 */
+                    #ffffff 100%
+                    /* 白 - 雪の山頂 */
+                );
+        }
+
+        .station-marker {
+            position: absolute;
+            left: 0;
+            width: 100%;
+            border-top: 2px dashed rgba(255, 255, 255, 0.4);
+            padding: 2px 0 0 8px;
+            font-size: 11px;
+            color: rgba(255, 255, 255, 0.95);
+            font-weight: bold;
+            text-shadow: 0 1px 3px rgba(0, 0, 0, 0.5);
+            pointer-events: none;
+        }
+
+        /* Climber Avatar Styles */
+        .climber-avatar {
+            position: absolute;
+            left: 50%;
+            transform: translateX(-50%);
+            width: 32px;
+            height: 32px;
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-weight: bold;
+            color: white;
+            font-size: 14px;
+            text-shadow: 0 1px 2px rgba(0, 0, 0, 0.3);
+            box-shadow: 0 3px 10px rgba(0, 0, 0, 0.4);
+            border: 2px solid white;
+            transition: bottom 0.8s cubic-bezier(0.4, 0, 0.2, 1), transform 0.2s ease;
+            cursor: pointer;
+            z-index: 10;
+        }
+
+        .climber-avatar:hover {
+            transform: translateX(-50%) scale(1.3);
+            z-index: 20;
+        }
+
+        .climber-avatar.self {
+            width: 42px;
+            height: 42px;
+            font-size: 18px;
+            border: 3px solid #FFD700;
+            box-shadow: 0 0 20px rgba(255, 215, 0, 0.7), 0 3px 10px rgba(0, 0, 0, 0.4);
+            z-index: 15;
+        }
+
+        .climber-avatar.self::after {
+            content: '★';
+            position: absolute;
+            top: -8px;
+            right: -8px;
+            font-size: 16px;
+            color: #FFD700;
+            text-shadow: 0 0 5px rgba(255, 215, 0, 0.8);
+        }
     </style>
 </head>
 
@@ -68,20 +145,20 @@
             </div>
         </div>
 
-        <!-- Progress -->
+        <!-- Climbing Route (Vertical) -->
         <div class="space-y-2">
             <div class="flex justify-between text-xs font-bold text-gray-600">
-                <span id="current-station">スター地</span>
+                <span id="current-station">スタート地点</span>
                 <span>山頂まで <span id="remaining-elevation" class="number-font">3776</span>m</span>
             </div>
-            <div class="relative w-full">
-                <progress class="progress progress-primary w-full h-3" value="0" max="100" id="progress-bar"></progress>
-                <div id="climbers-visualizer" class="absolute top-0 left-0 w-full h-3 pointer-events-none"></div>
-            </div>
-            <div class="flex justify-between text-[10px] text-gray-400 px-1">
-                <span>0m</span>
-                <span>5合目</span>
-                <span>3776m</span>
+
+            <!-- Vertical Mountain Route -->
+            <div id="climb-route" class="relative w-full h-[350px] rounded-xl overflow-hidden shadow-lg">
+                <!-- Station Markers (injected by JS) -->
+                <div id="station-markers"></div>
+
+                <!-- Climbers Visualizer -->
+                <div id="climbers-visualizer" class="absolute inset-0"></div>
             </div>
         </div>
 

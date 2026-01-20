@@ -49,7 +49,6 @@ let state = {
 const elCurrentElevation = document.getElementById('current-elevation');
 const elTotalSteps = document.getElementById('total-steps');
 const elRemaining = document.getElementById('remaining-elevation');
-const elProgressBar = document.getElementById('progress-bar');
 const elCurrentStation = document.getElementById('current-station');
 const elHistoryList = document.getElementById('history-list');
 const elResetBtn = document.getElementById('reset-btn');
@@ -62,6 +61,20 @@ const elModal = document.getElementById('username_modal');
 const elUsernameInput = document.getElementById('username-input');
 const elUsernameSubmit = document.getElementById('username-submit');
 const elUsernameSkip = document.getElementById('username-skip');
+
+// --- Utility Functions ---
+
+/**
+ * Generate consistent color from username using hash
+ */
+function getUserColor(username) {
+    let hash = 0;
+    for (let i = 0; i < username.length; i++) {
+        hash = username.charCodeAt(i) + ((hash << 5) - hash);
+    }
+    const hue = Math.abs(hash % 360);
+    return `hsl(${hue}, 65%, 55%)`;
+}
 
 // --- Core Logic ---
 
@@ -288,25 +301,52 @@ function checkUserAuth() {
     }
 }
 
+function renderStationMarkers() {
+    const markersContainer = document.getElementById('station-markers');
+    if (!markersContainer) return;
+
+    markersContainer.innerHTML = '';
+
+    STATIONS.forEach(station => {
+        const pct = (station.elevation / GOAL_ELEVATION) * 100;
+        const marker = document.createElement('div');
+        marker.className = 'station-marker';
+        marker.style.bottom = `${pct}%`;
+        marker.textContent = station.name;
+        markersContainer.appendChild(marker);
+    });
+}
+
 function renderVisualizer(presenceState) {
     elClimbersVisualizer.innerHTML = '';
 
+    // Collect all users including self
+    const allUsers = [];
+
     Object.values(presenceState).forEach(users => {
         users.forEach(user => {
-            // Skip invalid data or self (optional, maybe render self differently?)
             if (!user.user || user.elevation === undefined) return;
-            if (user.user === state.username) return;
-
-            const pct = Math.min(100, Math.max(0, (user.elevation / GOAL_ELEVATION) * 100));
-
-            const dot = document.createElement('div');
-            // Style: Yellow dot with tooltip
-            dot.className = 'absolute top-0 w-2 h-3 bg-yellow-400 rounded-sm opacity-90 transform -translate-x-1/2 shadow-sm border border-white/50 cursor-help transition-all duration-300';
-            dot.style.left = `${pct}%`;
-            dot.title = `${user.user} (${user.elevation}m)`;
-
-            elClimbersVisualizer.appendChild(dot);
+            allUsers.push(user);
         });
+    });
+
+    // Render each user as avatar
+    allUsers.forEach(user => {
+        const elevation = parseFloat(user.elevation);
+        const pct = Math.min(100, Math.max(0, (elevation / GOAL_ELEVATION) * 100));
+        const isSelf = user.user === state.username;
+
+        const avatar = document.createElement('div');
+        avatar.className = `climber-avatar tooltip ${isSelf ? 'self' : ''}`;
+        avatar.style.bottom = `${pct}%`;
+        avatar.style.backgroundColor = getUserColor(user.user);
+        avatar.setAttribute('data-tip', `${user.user} (${elevation}m)`);
+
+        // Display first character of username
+        const initial = user.user.charAt(0).toUpperCase();
+        avatar.textContent = initial;
+
+        elClimbersVisualizer.appendChild(avatar);
     });
 }
 
@@ -327,16 +367,17 @@ function renderUI() {
     const remaining = Math.max(0, GOAL_ELEVATION - elevation);
     elRemaining.textContent = remaining.toFixed(1);
 
-    // Progress
-    const progress = Math.min(100, (elevation / GOAL_ELEVATION) * 100);
-    elProgressBar.value = progress;
-
     const stationName = getCurrentStation(elevation);
     elCurrentStation.textContent = stationName;
 
     // Dynamic Background
     if (BG_GRADIENTS[stationName]) {
         document.body.style.background = BG_GRADIENTS[stationName];
+    }
+
+    // Render self avatar on the vertical route
+    if (state.username) {
+        renderSelfAvatar(elevation);
     }
 
     // History
@@ -350,6 +391,30 @@ function renderUI() {
             </li>
         `).join('');
     }
+}
+
+function renderSelfAvatar(elevation) {
+    const pct = Math.min(100, Math.max(0, (elevation / GOAL_ELEVATION) * 100));
+
+    // Remove previous self avatar if exists
+    const existingSelf = elClimbersVisualizer.querySelector('.climber-avatar.self');
+    if (existingSelf) {
+        existingSelf.style.bottom = `${pct}%`;
+        existingSelf.setAttribute('data-tip', `${state.username} (${elevation.toFixed(1)}m)`);
+        return;
+    }
+
+    // Create new self avatar
+    const avatar = document.createElement('div');
+    avatar.className = 'climber-avatar self tooltip';
+    avatar.style.bottom = `${pct}%`;
+    avatar.style.backgroundColor = getUserColor(state.username);
+    avatar.setAttribute('data-tip', `${state.username} (${elevation.toFixed(1)}m)`);
+
+    const initial = state.username.charAt(0).toUpperCase();
+    avatar.textContent = initial;
+
+    elClimbersVisualizer.appendChild(avatar);
 }
 
 // --- Initialization ---
@@ -379,6 +444,7 @@ function init() {
     }
 
     renderUI();
+    renderStationMarkers(); // Render mountain route markers
 
     // Event Listeners
     elResetBtn.addEventListener('click', () => {
