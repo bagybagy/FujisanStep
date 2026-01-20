@@ -59,6 +59,7 @@ const elClimbersVisualizer = document.getElementById('climbers-visualizer');
 const elModal = document.getElementById('username_modal');
 const elUsernameInput = document.getElementById('username-input');
 const elUsernameSubmit = document.getElementById('username-submit');
+const elUsernameSkip = document.getElementById('username-skip');
 
 // --- Core Logic ---
 
@@ -402,6 +403,11 @@ function init() {
         } else {
             alert('ニックネームを入力してください');
         }
+    });
+
+    elUsernameSkip.addEventListener('click', () => {
+        elModal.close();
+        showNotification('登録をスキップしました（ランキング等には参加できません）', 'info');
     });
 
     // Auth Check
