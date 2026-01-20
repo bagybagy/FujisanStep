@@ -85,8 +85,8 @@
             </div>
         </div>
 
-        <!-- Notification Area -->
-        <div id="notification-area" class="h-8"></div>
+        <!-- Notification Area (Moved to top-layer toast) -->
+        <div id="notification-dummy" class="h-0"></div>
 
         <!-- History -->
         <div class="space-y-2">
@@ -118,13 +118,15 @@
             <div class="form-control w-full">
                 <input type="text" id="username-input" placeholder="例: ヤマノボラー" class="input input-bordered w-full" />
             </div>
-            <div class="modal-action">
-                <button id="username-submit" class="btn btn-primary w-full">出発！</button>
+            <div class="modal-action flex justify-between">
+                <button id="username-skip" class="btn btn-ghost">後で登録</button>
+                <button id="username-submit" class="btn btn-primary px-8">出発！</button>
             </div>
         </div>
     </dialog>
 
     <!-- Script -->
+    <div id="notification-area" class="toast toast-top toast-center z-[99999]"></div>
     <script src="app.js"></script>
 </body>
 
