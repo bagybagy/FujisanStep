@@ -1,0 +1,131 @@
+<!DOCTYPE html>
+<html lang="ja" data-theme="winter">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>富士登山階段カウンター</title>
+    <!-- Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- DaisyUI -->
+    <link href="https://cdn.jsdelivr.net/npm/daisyui@4.6.0/dist/full.min.css" rel="stylesheet" type="text/css" />
+    <!-- Google Fonts -->
+    <link
+        href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;700&family=Zen+Maru+Gothic:wght@400;700&display=swap"
+        rel="stylesheet">
+    <!-- Confetti -->
+    <script src="https://cdn.jsdelivr.net/npm/canvas-confetti@1.9.2/dist/confetti.browser.min.js"></script>
+    <!-- Supabase -->
+    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+    <style>
+        body {
+            font-family: 'Zen Maru Gothic', sans-serif;
+            background: linear-gradient(135deg, #a8c0ff 0%, #3f2b96 100%);
+            min-height: 100vh;
+        }
+
+        .glass-panel {
+            background: rgba(255, 255, 255, 0.7);
+            backdrop-filter: blur(10px);
+            border-radius: 16px;
+            border: 1px solid rgba(255, 255, 255, 0.3);
+            box-shadow: 0 4px 30px rgba(0, 0, 0, 0.1);
+        }
+
+        .number-font {
+            font-family: 'Outfit', sans-serif;
+        }
+    </style>
+</head>
+
+<body class="p-4 flex flex-col items-center justify-center text-slate-800">
+
+    <div class="glass-panel w-full max-w-md p-6 space-y-6">
+        <!-- Header -->
+        <header class="text-center">
+            <h1 class="text-2xl font-bold bg-clip-text text-transparent bg-gradient-to-r from-blue-600 to-indigo-600">
+                🗻 富士登山カウンター
+            </h1>
+            <p class="text-xs text-gray-500 mt-1">目指せ山頂 3,776m</p>
+            <div id="online-counter" class="hidden text-xs text-green-600 font-bold mt-2 animate-pulse">
+                ● <span id="online-count">0</span>人が登山中
+            </div>
+        </header>
+
+        <!-- Status Card -->
+        <div class="bg-white/50 rounded-xl p-4 text-center shadow-sm">
+            <div class="grid grid-cols-2 gap-4">
+                <div>
+                    <p class="text-xs text-gray-500 uppercase">現在の標高</p>
+                    <p class="text-3xl font-bold number-font text-blue-600" id="current-elevation">0<span
+                            class="text-sm text-gray-400 font-normal ml-1">m</span></p>
+                </div>
+                <div>
+                    <p class="text-xs text-gray-500 uppercase">累計段数</p>
+                    <p class="text-2xl font-bold number-font text-slate-700" id="total-steps">0<span
+                            class="text-sm text-gray-400 font-normal ml-1">段</span></p>
+                </div>
+            </div>
+        </div>
+
+        <!-- Progress -->
+        <div class="space-y-2">
+            <div class="flex justify-between text-xs font-bold text-gray-600">
+                <span id="current-station">スター地</span>
+                <span>山頂まで <span id="remaining-elevation" class="number-font">3776</span>m</span>
+            </div>
+            <div class="relative w-full">
+                <progress class="progress progress-primary w-full h-3" value="0" max="100" id="progress-bar"></progress>
+                <div id="climbers-visualizer" class="absolute top-0 left-0 w-full h-3 pointer-events-none"></div>
+            </div>
+            <div class="flex justify-between text-[10px] text-gray-400 px-1">
+                <span>0m</span>
+                <span>5合目</span>
+                <span>3776m</span>
+            </div>
+        </div>
+
+        <!-- Notification Area -->
+        <div id="notification-area" class="h-8"></div>
+
+        <!-- History -->
+        <div class="space-y-2">
+            <h3 class="text-sm font-bold text-gray-600 flex items-center">
+                <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4 mr-1" fill="none" viewBox="0 0 24 24"
+                    stroke="currentColor">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                        d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
+                </svg>
+                直近の履歴
+            </h3>
+            <ul id="history-list" class="text-sm space-y-2 max-h-40 overflow-y-auto pr-1 scrollbar-thin">
+                <!-- History items will be injected here -->
+                <li class="text-gray-400 text-center text-xs py-2">まだ記録はありません</li>
+            </ul>
+        </div>
+
+        <!-- Debug/Reset -->
+        <div class="pt-4 border-t border-gray-200/50">
+            <button id="reset-btn" class="btn btn-xs btn-ghost text-red-400 hover:text-red-500 w-full">データリセット</button>
+        </div>
+    </div>
+
+    <!-- User Name Modal -->
+    <dialog id="username_modal" class="modal modal-bottom sm:modal-middle">
+        <div class="modal-box glass-panel">
+            <h3 class="font-bold text-lg">登山者登録</h3>
+            <p class="py-4">ニックネームを入力して、みんなと一緒に登ろう！</p>
+            <div class="form-control w-full">
+                <input type="text" id="username-input" placeholder="例: ヤマノボラー" class="input input-bordered w-full" />
+            </div>
+            <div class="modal-action">
+                <button id="username-submit" class="btn btn-primary w-full">出発！</button>
+            </div>
+        </div>
+    </dialog>
+
+    <!-- Script -->
+    <script src="app.js"></script>
+</body>
+
+</html>
