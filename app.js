@@ -225,6 +225,30 @@ function addSteps(id, steps) {
 
 // --- Backend / Realtime Logic ---
 
+/**
+ * Load all climbers from the database table
+ */
+async function loadAllClimbers() {
+    if (!supabaseClient) return;
+    
+    try {
+        const { data, error } = await supabaseClient
+            .from('climbers')
+            .select('*')
+            .order('total_steps', { ascending: false });
+        
+        if (error) {
+            console.error('Failed to load climbers:', error);
+            return;
+        }
+        
+        // Render all climbers on the mountain
+        renderVisualizerFromTable(data || []);
+    } catch (e) {
+        console.error('Load climbers exception:', e);
+    }
+}
+
 async function initSupabase() {
     if (window.supabase) {
         supabaseClient = window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
@@ -237,31 +261,47 @@ async function initSupabase() {
         return;
     }
 
-    // Subscribe to online presence / updates
+    // Subscribe to online presence and database changes
     const channel = supabaseClient.channel('climbers_room');
 
     channel
+        // Presence only for online counter
         .on('presence', { event: 'sync' }, () => {
             const newState = channel.presenceState();
             const count = Object.keys(newState).length;
             elOnlineCount.textContent = count;
             elOnlineCounter.classList.remove('hidden');
-            renderVisualizer(newState);
         })
+        // Listen to database changes for avatar updates
+        .on('postgres_changes', 
+            { event: 'INSERT', schema: 'public', table: 'climbers' },
+            (payload) => {
+                console.log('New climber:', payload);
+                loadAllClimbers();
+            }
+        )
+        .on('postgres_changes',
+            { event: 'UPDATE', schema: 'public', table: 'climbers' },
+            (payload) => {
+                console.log('Climber updated:', payload);
+                loadAllClimbers();
+            }
+        )
         .subscribe(async (status) => {
             if (status === 'SUBSCRIBED') {
+                // Track presence for online counter
                 await channel.track({
                     user: state.username,
                     elevation: calculateElevation(state.totalSteps),
                     last_updated: new Date().toISOString()
                 });
+                
+                // Load all climbers from table on initial connection
+                await loadAllClimbers();
             }
         });
 
-    // Also upsert to persistent table if needed, but Presence is good for "Online Now"
-    // Spec says: "Realtime location sync". Presence satisfies "Online".
-    // For persistent data (total steps leaderboard), we should use a Table.
-    // Let's implement Table upsert too.
+    // Sync current user to database
     syncLocation();
 }
 
@@ -317,47 +357,37 @@ function renderStationMarkers() {
     });
 }
 
-function renderVisualizer(presenceState) {
+/**
+ * Render climbers from database table data
+ */
+function renderVisualizerFromTable(climbersData) {
     elClimbersVisualizer.innerHTML = '';
-
-    // Collect all users including self
-    const allUsers = [];
-
-    Object.values(presenceState).forEach(users => {
-        users.forEach(user => {
-            if (!user.user || user.elevation === undefined) return;
-            allUsers.push(user);
-        });
-    });
-
-    // Render each user as avatar
-    allUsers.forEach(user => {
-        const elevation = parseFloat(user.elevation);
+    
+    climbersData.forEach(climber => {
+        const elevation = (climber.total_steps * STEP_HEIGHT);
         const pct = Math.min(100, Math.max(0, (elevation / GOAL_ELEVATION) * 100));
-        const isSelf = user.user === state.username;
-
+        const isSelf = climber.username === state.username;
+        
         // Slope-following logic: drift and narrowing
-        const drift = Math.sin(pct * 0.15) * 40; // Meandering movement
-        const narrowing = 1 - (pct / 100); // Converge towards peak
+        const drift = Math.sin(pct * 0.15) * 40;
+        const narrowing = 1 - (pct / 100);
         const leftPosition = 50 + (drift * narrowing);
-
+        
         const avatar = document.createElement('div');
         avatar.className = `climber-avatar tooltip ${isSelf ? 'self' : ''}`;
         avatar.style.bottom = `${pct}%`;
         avatar.style.left = `${leftPosition}%`;
-        avatar.style.backgroundColor = getUserColor(user.user);
-        avatar.setAttribute('data-tip', `${user.user} (${elevation}m)`);
-
-        // Display first character of username
-        const initial = user.user.charAt(0).toUpperCase();
+        avatar.style.backgroundColor = getUserColor(climber.username);
+        avatar.setAttribute('data-tip', `${climber.username} (${elevation.toFixed(1)}m)`);
+        
+        const initial = climber.username.charAt(0).toUpperCase();
         avatar.textContent = initial;
-
-        // Add name label
+        
         const nameLabel = document.createElement('div');
         nameLabel.className = 'climber-name';
-        nameLabel.textContent = user.user;
+        nameLabel.textContent = climber.username;
         avatar.appendChild(nameLabel);
-
+        
         elClimbersVisualizer.appendChild(avatar);
     });
 }
@@ -387,11 +417,6 @@ function renderUI() {
         document.body.style.background = BG_GRADIENTS[stationName];
     }
 
-    // Render self avatar on the vertical route
-    if (state.username) {
-        renderSelfAvatar(elevation);
-    }
-
     // History
     if (state.history.length === 0) {
         elHistoryList.innerHTML = '<li class="text-gray-400 text-center text-xs py-2">まだ記録はありません</li>';
@@ -405,42 +430,7 @@ function renderUI() {
     }
 }
 
-function renderSelfAvatar(elevation) {
-    const pct = Math.min(100, Math.max(0, (elevation / GOAL_ELEVATION) * 100));
-
-    // Slope-following logic
-    const drift = Math.sin(pct * 0.15) * 40;
-    const narrowing = 1 - (pct / 100);
-    const leftPosition = 50 + (drift * narrowing);
-
-    // Remove previous self avatar if exists
-    const existingSelf = elClimbersVisualizer.querySelector('.climber-avatar.self');
-    if (existingSelf) {
-        existingSelf.style.bottom = `${pct}%`;
-        existingSelf.style.left = `${leftPosition}%`;
-        existingSelf.setAttribute('data-tip', `${state.username} (${elevation.toFixed(1)}m)`);
-        return;
-    }
-
-    // Create new self avatar
-    const avatar = document.createElement('div');
-    avatar.className = 'climber-avatar self tooltip';
-    avatar.style.bottom = `${pct}%`;
-    avatar.style.left = `${leftPosition}%`;
-    avatar.style.backgroundColor = getUserColor(state.username);
-    avatar.setAttribute('data-tip', `${state.username} (${elevation.toFixed(1)}m)`);
-
-    const initial = state.username.charAt(0).toUpperCase();
-    avatar.textContent = initial;
-
-    // Add name label
-    const nameLabel = document.createElement('div');
-    nameLabel.className = 'climber-name';
-    nameLabel.textContent = state.username;
-    avatar.appendChild(nameLabel);
-
-    elClimbersVisualizer.appendChild(avatar);
-}
+// renderSelfAvatar removed - now handled by renderVisualizerFromTable
 
 // --- Initialization ---
 
