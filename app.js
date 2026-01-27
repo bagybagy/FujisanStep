@@ -42,7 +42,8 @@ let state = {
     lastReadId: null,
     lastReadTimestamp: 0,
     history: [],
-    username: null
+    username: null,
+    scannedDates: {} // { [id]: 'YYYY-MM-DD' } - Tracks last scan date per location
 };
 
 // DOM Elements
@@ -183,12 +184,10 @@ function addSteps(id, steps) {
         return;
     }
 
-    // 2. Duplicate ID Check (Only updates timestamp if same ID? Or ignore? Spec says "ignore logic")
-    // Implementation Plan: "Ignore if same ID as last time"
-    // However, if the user moved (A -> B -> A), it should count.
-    // So logic is: if (id === lastReadId) ignore.
-    if (id === state.lastReadId) {
-        showNotification('同じ場所での連続読み取りはできません', 'error');
+    // 2. Once-per-day Check (Global - only 1 scan per day total)
+    const todayStr = new Date().toLocaleDateString('ja-JP'); // e.g., '2026/1/27'
+    if (state.lastScanDate === todayStr) {
+        showNotification('本日はすでに記録済みです（翌日0時にリセット）', 'warning');
         return;
     }
 
@@ -196,6 +195,9 @@ function addSteps(id, steps) {
     state.totalSteps += steps;
     state.lastReadId = id;
     state.lastReadTimestamp = now;
+
+    // Record today's scan date (for 1-per-day restriction)
+    state.lastScanDate = todayStr;
 
     // Add history
     state.history.unshift({
@@ -225,6 +227,30 @@ function addSteps(id, steps) {
 
 // --- Backend / Realtime Logic ---
 
+/**
+ * Load all climbers from the database table
+ */
+async function loadAllClimbers() {
+    if (!supabaseClient) return;
+
+    try {
+        const { data, error } = await supabaseClient
+            .from('climbers')
+            .select('*')
+            .order('total_steps', { ascending: false });
+
+        if (error) {
+            console.error('Failed to load climbers:', error);
+            return;
+        }
+
+        // Render all climbers on the mountain
+        renderVisualizerFromTable(data || []);
+    } catch (e) {
+        console.error('Load climbers exception:', e);
+    }
+}
+
 async function initSupabase() {
     if (window.supabase) {
         supabaseClient = window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
@@ -237,31 +263,47 @@ async function initSupabase() {
         return;
     }
 
-    // Subscribe to online presence / updates
+    // Subscribe to online presence and database changes
     const channel = supabaseClient.channel('climbers_room');
 
     channel
+        // Presence only for online counter
         .on('presence', { event: 'sync' }, () => {
             const newState = channel.presenceState();
             const count = Object.keys(newState).length;
             elOnlineCount.textContent = count;
             elOnlineCounter.classList.remove('hidden');
-            renderVisualizer(newState);
         })
+        // Listen to database changes for avatar updates
+        .on('postgres_changes',
+            { event: 'INSERT', schema: 'public', table: 'climbers' },
+            (payload) => {
+                console.log('New climber:', payload);
+                loadAllClimbers();
+            }
+        )
+        .on('postgres_changes',
+            { event: 'UPDATE', schema: 'public', table: 'climbers' },
+            (payload) => {
+                console.log('Climber updated:', payload);
+                loadAllClimbers();
+            }
+        )
         .subscribe(async (status) => {
             if (status === 'SUBSCRIBED') {
+                // Track presence for online counter
                 await channel.track({
                     user: state.username,
                     elevation: calculateElevation(state.totalSteps),
                     last_updated: new Date().toISOString()
                 });
+
+                // Load all climbers from table on initial connection
+                await loadAllClimbers();
             }
         });
 
-    // Also upsert to persistent table if needed, but Presence is good for "Online Now"
-    // Spec says: "Realtime location sync". Presence satisfies "Online".
-    // For persistent data (total steps leaderboard), we should use a Table.
-    // Let's implement Table upsert too.
+    // Sync current user to database
     syncLocation();
 }
 
@@ -317,45 +359,51 @@ function renderStationMarkers() {
     });
 }
 
-function renderVisualizer(presenceState) {
+/**
+ * Render climbers from database table data
+ * Optimized for large user counts: shows top N climbers + always self
+ */
+const MAX_AVATAR_DISPLAY = 50; // Max avatars to show (excluding self if not in top N)
+
+function renderVisualizerFromTable(climbersData) {
     elClimbersVisualizer.innerHTML = '';
 
-    // Collect all users including self
-    const allUsers = [];
+    // Optimization: Limit to top N users + ensure self is always included
+    let displayData = climbersData.slice(0, MAX_AVATAR_DISPLAY);
 
-    Object.values(presenceState).forEach(users => {
-        users.forEach(user => {
-            if (!user.user || user.elevation === undefined) return;
-            allUsers.push(user);
-        });
-    });
+    // Check if self is in the display list
+    const selfInList = displayData.some(c => c.username === state.username);
+    if (!selfInList && state.username) {
+        // Find self in full data and add to display
+        const selfData = climbersData.find(c => c.username === state.username);
+        if (selfData) {
+            displayData.push(selfData);
+        }
+    }
 
-    // Render each user as avatar
-    allUsers.forEach(user => {
-        const elevation = parseFloat(user.elevation);
+    displayData.forEach(climber => {
+        const elevation = (climber.total_steps * STEP_HEIGHT);
         const pct = Math.min(100, Math.max(0, (elevation / GOAL_ELEVATION) * 100));
-        const isSelf = user.user === state.username;
+        const isSelf = climber.username === state.username;
 
         // Slope-following logic: drift and narrowing
-        const drift = Math.sin(pct * 0.15) * 40; // Meandering movement
-        const narrowing = 1 - (pct / 100); // Converge towards peak
+        const drift = Math.sin(pct * 0.15) * 40;
+        const narrowing = 1 - (pct / 100);
         const leftPosition = 50 + (drift * narrowing);
 
         const avatar = document.createElement('div');
         avatar.className = `climber-avatar tooltip ${isSelf ? 'self' : ''}`;
         avatar.style.bottom = `${pct}%`;
         avatar.style.left = `${leftPosition}%`;
-        avatar.style.backgroundColor = getUserColor(user.user);
-        avatar.setAttribute('data-tip', `${user.user} (${elevation}m)`);
+        avatar.style.backgroundColor = getUserColor(climber.username);
+        avatar.setAttribute('data-tip', `${climber.username} (${elevation.toFixed(1)}m)`);
 
-        // Display first character of username
-        const initial = user.user.charAt(0).toUpperCase();
+        const initial = climber.username.charAt(0).toUpperCase();
         avatar.textContent = initial;
 
-        // Add name label
         const nameLabel = document.createElement('div');
         nameLabel.className = 'climber-name';
-        nameLabel.textContent = user.user;
+        nameLabel.textContent = climber.username;
         avatar.appendChild(nameLabel);
 
         elClimbersVisualizer.appendChild(avatar);
@@ -387,11 +435,6 @@ function renderUI() {
         document.body.style.background = BG_GRADIENTS[stationName];
     }
 
-    // Render self avatar on the vertical route
-    if (state.username) {
-        renderSelfAvatar(elevation);
-    }
-
     // History
     if (state.history.length === 0) {
         elHistoryList.innerHTML = '<li class="text-gray-400 text-center text-xs py-2">まだ記録はありません</li>';
@@ -405,42 +448,7 @@ function renderUI() {
     }
 }
 
-function renderSelfAvatar(elevation) {
-    const pct = Math.min(100, Math.max(0, (elevation / GOAL_ELEVATION) * 100));
-
-    // Slope-following logic
-    const drift = Math.sin(pct * 0.15) * 40;
-    const narrowing = 1 - (pct / 100);
-    const leftPosition = 50 + (drift * narrowing);
-
-    // Remove previous self avatar if exists
-    const existingSelf = elClimbersVisualizer.querySelector('.climber-avatar.self');
-    if (existingSelf) {
-        existingSelf.style.bottom = `${pct}%`;
-        existingSelf.style.left = `${leftPosition}%`;
-        existingSelf.setAttribute('data-tip', `${state.username} (${elevation.toFixed(1)}m)`);
-        return;
-    }
-
-    // Create new self avatar
-    const avatar = document.createElement('div');
-    avatar.className = 'climber-avatar self tooltip';
-    avatar.style.bottom = `${pct}%`;
-    avatar.style.left = `${leftPosition}%`;
-    avatar.style.backgroundColor = getUserColor(state.username);
-    avatar.setAttribute('data-tip', `${state.username} (${elevation.toFixed(1)}m)`);
-
-    const initial = state.username.charAt(0).toUpperCase();
-    avatar.textContent = initial;
-
-    // Add name label
-    const nameLabel = document.createElement('div');
-    nameLabel.className = 'climber-name';
-    nameLabel.textContent = state.username;
-    avatar.appendChild(nameLabel);
-
-    elClimbersVisualizer.appendChild(avatar);
-}
+// renderSelfAvatar removed - now handled by renderVisualizerFromTable
 
 // --- Initialization ---
 
@@ -505,6 +513,259 @@ function init() {
 
     // Auth Check
     setTimeout(checkUserAuth, 500);
+
+    // Admin Mode Check
+    checkAdminMode();
+}
+
+// --- Ranking Functions ---
+
+const elRankingBtn = document.getElementById('ranking-btn');
+const elRankingModal = document.getElementById('ranking_modal');
+const elRankingList = document.getElementById('ranking-list');
+
+async function loadRanking() {
+    if (!supabaseClient) {
+        elRankingList.innerHTML = '<li class="text-gray-400 text-center text-xs py-2">接続エラー</li>';
+        return;
+    }
+
+    try {
+        const { data, error } = await supabaseClient
+            .from('climbers')
+            .select('username, total_steps')
+            .order('total_steps', { ascending: false })
+            .limit(100);
+
+        if (error) {
+            console.error('Ranking fetch error:', error);
+            elRankingList.innerHTML = '<li class="text-red-400 text-center text-xs py-2">データ取得エラー</li>';
+            return;
+        }
+
+        if (!data || data.length === 0) {
+            elRankingList.innerHTML = '<li class="text-gray-400 text-center text-xs py-2">まだ登山者がいません</li>';
+            return;
+        }
+
+        elRankingList.innerHTML = data.map((climber, index) => {
+            const elevation = (climber.total_steps * STEP_HEIGHT).toFixed(1);
+            const isSelf = climber.username === state.username;
+            const medal = index === 0 ? '🥇' : index === 1 ? '🥈' : index === 2 ? '🥉' : `${index + 1}.`;
+            return `
+                <li class="flex justify-between items-center p-2 rounded ${isSelf ? 'bg-amber-100 border-2 border-amber-400 font-bold' : 'bg-white/40'}">
+                    <span class="flex items-center gap-2">
+                        <span class="w-8 text-center">${medal}</span>
+                        <span>${climber.username}</span>
+                    </span>
+                    <span class="text-blue-600 number-font">${elevation}m</span>
+                </li>
+            `;
+        }).join('');
+    } catch (e) {
+        console.error('Ranking exception:', e);
+        elRankingList.innerHTML = '<li class="text-red-400 text-center text-xs py-2">エラーが発生しました</li>';
+    }
+}
+
+if (elRankingBtn) {
+    elRankingBtn.addEventListener('click', () => {
+        elRankingModal.showModal();
+        loadRanking();
+    });
+}
+
+// --- Admin Functions ---
+
+const elAdminModal = document.getElementById('admin_modal');
+const elAdminUserList = document.getElementById('admin-user-list');
+const elAdminTargetUser = document.getElementById('admin-target-user');
+const elAdminAddSteps = document.getElementById('admin-add-steps');
+const elAdminAddStepsBtn = document.getElementById('admin-add-steps-btn');
+const elAdminResetAllBtn = document.getElementById('admin-reset-all-btn');
+
+let isAdminMode = false;
+
+function checkAdminMode() {
+    const params = new URLSearchParams(window.location.search);
+    if (params.get('mode') === 'admin') {
+        isAdminMode = true;
+        // Show admin button in UI (e.g., add a floating button)
+        const adminBtn = document.createElement('button');
+        adminBtn.id = 'admin-open-btn';
+        adminBtn.className = 'fixed bottom-4 right-4 btn btn-circle btn-warning shadow-lg z-50';
+        adminBtn.textContent = '🔧';
+        adminBtn.addEventListener('click', () => {
+            elAdminModal.showModal();
+            loadAdminUserList();
+        });
+        document.body.appendChild(adminBtn);
+    }
+}
+
+async function loadAdminUserList() {
+    if (!supabaseClient) {
+        elAdminUserList.innerHTML = '<li class="text-gray-400 text-center text-xs py-2">接続エラー</li>';
+        return;
+    }
+
+    try {
+        const { data, error } = await supabaseClient
+            .from('climbers')
+            .select('*')
+            .order('total_steps', { ascending: false });
+
+        if (error) {
+            console.error('Admin user list error:', error);
+            elAdminUserList.innerHTML = '<li class="text-red-400 text-center text-xs py-2">データ取得エラー</li>';
+            return;
+        }
+
+        if (!data || data.length === 0) {
+            elAdminUserList.innerHTML = '<li class="text-gray-400 text-center text-xs py-2">登録ユーザーなし</li>';
+            return;
+        }
+
+        elAdminUserList.innerHTML = data.map(climber => {
+            const elevation = (climber.total_steps * STEP_HEIGHT).toFixed(1);
+            return `
+                <li class="flex justify-between items-center p-1 bg-white/40 rounded text-xs">
+                    <span>${climber.username} (${elevation}m, ${climber.total_steps}段)</span>
+                    <button class="btn btn-xs btn-error" onclick="deleteClimber('${climber.username}')">削除</button>
+                </li>
+            `;
+        }).join('');
+    } catch (e) {
+        console.error('Admin user list exception:', e);
+        elAdminUserList.innerHTML = '<li class="text-red-400 text-center text-xs py-2">エラーが発生しました</li>';
+    }
+}
+
+async function deleteClimber(username) {
+    if (!confirm(`${username} を削除しますか？`)) return;
+
+    if (!supabaseClient) {
+        alert('接続エラー');
+        return;
+    }
+
+    try {
+        const { error } = await supabaseClient
+            .from('climbers')
+            .delete()
+            .eq('username', username);
+
+        if (error) {
+            console.error('Delete error:', error);
+            alert('削除に失敗しました: ' + error.message);
+            return;
+        }
+
+        showNotification(`${username} を削除しました`, 'success');
+        loadAdminUserList();
+        loadAllClimbers();
+    } catch (e) {
+        console.error('Delete exception:', e);
+        alert('削除中にエラーが発生しました');
+    }
+}
+
+async function addStepsToUser(username, steps) {
+    if (!supabaseClient) {
+        alert('接続エラー');
+        return;
+    }
+
+    try {
+        // First get current steps
+        const { data: existing, error: fetchError } = await supabaseClient
+            .from('climbers')
+            .select('total_steps')
+            .eq('username', username)
+            .single();
+
+        if (fetchError) {
+            console.error('Fetch error:', fetchError);
+            alert('ユーザーが見つかりません: ' + username);
+            return;
+        }
+
+        const newSteps = (existing?.total_steps || 0) + steps;
+
+        const { error } = await supabaseClient
+            .from('climbers')
+            .update({
+                total_steps: newSteps,
+                station: getCurrentStation(newSteps * STEP_HEIGHT),
+                last_updated: new Date().toISOString()
+            })
+            .eq('username', username);
+
+        if (error) {
+            console.error('Update error:', error);
+            alert('更新に失敗しました: ' + error.message);
+            return;
+        }
+
+        showNotification(`${username} に ${steps}段 を付与しました (計: ${newSteps}段)`, 'success');
+        loadAdminUserList();
+        loadAllClimbers();
+    } catch (e) {
+        console.error('Add steps exception:', e);
+        alert('段数付与中にエラーが発生しました');
+    }
+}
+
+async function resetAllClimbers() {
+    if (!confirm('本当に全ユーザーデータを削除しますか？この操作は元に戻せません！')) return;
+    if (!confirm('再度確認：すべてのユーザーの登山記録がリセットされます。続行しますか？')) return;
+
+    if (!supabaseClient) {
+        alert('接続エラー');
+        return;
+    }
+
+    try {
+        // Delete all rows (Supabase requires a filter, so we use 'total_steps >= 0')
+        const { error } = await supabaseClient
+            .from('climbers')
+            .delete()
+            .gte('total_steps', 0);
+
+        if (error) {
+            console.error('Reset all error:', error);
+            alert('リセットに失敗しました: ' + error.message);
+            return;
+        }
+
+        showNotification('全ユーザーデータをリセットしました', 'success');
+        loadAdminUserList();
+        loadAllClimbers();
+    } catch (e) {
+        console.error('Reset all exception:', e);
+        alert('リセット中にエラーが発生しました');
+    }
+}
+
+// Admin Event Listeners
+if (elAdminAddStepsBtn) {
+    elAdminAddStepsBtn.addEventListener('click', () => {
+        const username = elAdminTargetUser.value.trim();
+        const steps = parseInt(elAdminAddSteps.value, 10);
+        if (!username) {
+            alert('ユーザー名を入力してください');
+            return;
+        }
+        if (isNaN(steps) || steps <= 0) {
+            alert('有効な段数を入力してください');
+            return;
+        }
+        addStepsToUser(username, steps);
+    });
+}
+
+if (elAdminResetAllBtn) {
+    elAdminResetAllBtn.addEventListener('click', resetAllClimbers);
 }
 
 // Start
